@@ -5,30 +5,21 @@ import json
 import os
 import faiss
 import numpy as np
-from dotenv import load_dotenv
-from openai import OpenAI
+from sentence_transformers import SentenceTransformer
 
-# Generated the embeddings and stored in the FAISS Base 
-def _get_openai_client() -> OpenAI:
-	load_dotenv()
-	api_key = os.getenv("OPENAI_API_KEY", "").strip()
-	if not api_key:
-		raise ValueError("Missing OPENAI_API_KEY in .env")
-	return OpenAI(api_key=api_key)
+# Generated the embeddings using local model and stored in the FAISS Base
+_EMBEDDING_MODEL = None
+
+def _get_embedding_model():
+	global _EMBEDDING_MODEL
+	if _EMBEDDING_MODEL is None:
+		_EMBEDDING_MODEL = SentenceTransformer('all-MiniLM-L6-v2')
+	return _EMBEDDING_MODEL
 
 def _embed_texts(texts: List[str]) -> List[List[float]]:
-	client = _get_openai_client()
-	embeddings: List[List[float]] = []
-	batch_size = 64
-	for i in range(0, len(texts), batch_size):
-		batch = texts[i:i + batch_size]
-		resp = client.embeddings.create(
-			model="text-embedding-3-small",
-			input=batch,
-		)
-		embeddings.extend([e.embedding for e in resp.data])
-
-	return embeddings
+	model = _get_embedding_model()
+	embeddings = model.encode(texts, show_progress_bar=False)
+	return embeddings.tolist()
 
 
 def _save_store(store_dir: Path, index, chunks: List[Dict[str, str]]) -> None:

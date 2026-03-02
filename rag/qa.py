@@ -3,9 +3,10 @@ import os
 
 import numpy as np
 from dotenv import load_dotenv
-from openai import OpenAI
+from bytez import Bytez
+from sentence_transformers import SentenceTransformer
 
-## Here I loaded the model, built the prompt and used gpt model to get the most relavent chunks and given the response   
+## Here I loaded the model, built the prompt and used Bytez GPT-4o-mini (free) to get the most relavent chunks and given the response   
 SYSTEM_PROMPT = (
 	"You are a question-answering assistant. "
     "Answer the question using ONLY the information provided in the context. "
@@ -13,20 +14,27 @@ SYSTEM_PROMPT = (
     "If the answer is not explicitly present in the context, respond with: "
     "\"The document does not contain the information you are asking for.\""
 )
-def _get_openai_client() -> OpenAI:
+
+_EMBEDDING_MODEL = None
+
+def _get_embedding_model():
+	global _EMBEDDING_MODEL
+	if _EMBEDDING_MODEL is None:
+		_EMBEDDING_MODEL = SentenceTransformer('all-MiniLM-L6-v2')
+	return _EMBEDDING_MODEL
+
+def _get_bytez_model():
 	load_dotenv()
-	api_key = os.getenv("OPENAI_API_KEY", "").strip()
+	api_key = os.getenv("BYTEZ_API_KEY", "").strip()
 	if not api_key:
-		raise ValueError("Missing OPENAI_API_KEY in .env")
-	return OpenAI(api_key=api_key)
+		raise ValueError("Missing BYTEZ_API_KEY in .env")
+	sdk = Bytez(api_key)
+	return sdk.model("openai/gpt-4o-mini")
 
 def _embed_query(text: str) -> List[float]:
-	client = _get_openai_client()
-	resp = client.embeddings.create(
-		model="text-embedding-3-small",
-		input=text,
-	)
-	return resp.data[0].embedding
+	model = _get_embedding_model()
+	embedding = model.encode(text, show_progress_bar=False)
+	return embedding.tolist()
 
 def _build_prompt(question: str, contexts: List[Dict[str, str]]) -> str:
 	parts = ["Context:"]
@@ -59,15 +67,22 @@ def answer_question(question: str, vector_store: Dict, top_k: int) -> Dict[str, 
 			"text": chunk["text"],
 		})
 	prompt = _build_prompt(question, contexts)
-	client = _get_openai_client()
-	completion = client.chat.completions.create(
-		model="gpt-4o",
-		messages=[
-			{"role": "system", "content": SYSTEM_PROMPT},
-			{"role": "user", "content": prompt},
-		],
-		temperature=0.4,
-	)
-	answer = completion.choices[0].message.content or ""
-	return {"answer": answer.strip(), "sources": sources}
+	model = _get_bytez_model()
+	full_prompt = f"{SYSTEM_PROMPT}\n\n{prompt}"
+	results = model.run([
+		{"role": "user", "content": full_prompt}
+	])
+	if isinstance(results, dict):
+		if results.get("error"):
+			raise RuntimeError(f"Bytez API error: {results.get('error')}")
+		answer = results.get("output") or ""
+	else:
+		if results.error:
+			raise RuntimeError(f"Bytez API error: {results.error}")
+		answer = results.output or ""
+	if isinstance(answer, dict):
+		answer_text = answer.get("content", "").strip()
+	else:
+		answer_text = str(answer).strip() if answer else ""
+	return {"answer": answer_text, "sources": sources}
 

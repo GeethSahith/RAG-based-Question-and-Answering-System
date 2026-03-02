@@ -1,6 +1,7 @@
 streamlit
 pypdf
 faiss-cpu
-openai
 numpy
 python-dotenv
+sentence-transformers
+bytez

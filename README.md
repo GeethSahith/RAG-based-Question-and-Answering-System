@@ -12,7 +12,7 @@ PDF -> text -> chunks -> embeddings -> FAISS -> retrieve -> LLM -> answered with
     ./venv/Scripts/activate
 2. Install dependencies from requirements.txt
     pip install -r requirements.txt
-3. Create a .env file with OPENAI_API_KEY in root folder.
+3. Create a .env file with BYTEZ_API_KEY(OpenAI) in root folder.
 
 # Run
 Use Streamlit to run app.py
