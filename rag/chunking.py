@@ -15,7 +15,10 @@ def load_pdf(path: str) -> List[Dict[str, str]]:
 	pages: List[Dict[str, str]] = []
 
 	for i, page in enumerate(reader.pages):
-		raw = page.extract_text() or ""
+		try:
+			raw = page.extract_text() or ""
+		except Exception:
+			raw = ""
 		pages.append({
 			"page_num": i + 1,
 			"text": _clean_text(raw),

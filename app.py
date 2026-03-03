@@ -29,9 +29,9 @@ def main() -> None:
 
 	with st.sidebar:
 		st.subheader("Settings")
-		chunk_size = st.number_input("Chunk size", min_value=200, max_value=2000, value=900)
+		chunk_size = st.number_input("Chunk size", min_value=200, max_value=1500, value=900)
 		chunk_overlap = st.number_input("Chunk overlap", min_value=0, max_value=400, value=150)
-		top_k = st.number_input("Top-k", min_value=1, max_value=10, value=4)
+		top_k = st.number_input("Top-k", min_value=1, max_value=10, value=5)
 
 	with st.container():
 		st.subheader("Upload PDF")
@@ -47,14 +47,26 @@ def main() -> None:
 		doc_id = _hash_bytes(file_bytes)
 
 		if st.session_state.get("doc_id") != doc_id:
-			pdf_path = _save_upload(file_bytes, doc_id)
-			pages = load_pdf(str(pdf_path))
-			chunks = chunk_text(pages, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
-			vector_store = create_or_load_vector_store(
-				doc_id=doc_id,
-				chunks=chunks,
-				persist_dir=str(VECTOR_DIR),
-			)
+			try:
+				pdf_path = _save_upload(file_bytes, doc_id)
+				pages = load_pdf(str(pdf_path))
+				chunks = chunk_text(pages, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+				import sys
+				print(f"DEBUG APP: Loaded {len(pages)} pages, created {len(chunks)} chunks", file=sys.stderr)
+				for i, chunk in enumerate(chunks[:3]):
+					print(f"DEBUG APP: Chunk {i} - Page {chunk['page_num']}: {chunk['text'][:80]}...", file=sys.stderr)
+				vector_store = create_or_load_vector_store(
+					doc_id=doc_id,
+					chunks=chunks,
+					persist_dir=str(VECTOR_DIR),
+				)
+			except ValueError as exc:
+				st.warning(str(exc))
+				return
+			except Exception as exc:
+				st.error(f"Failed to process PDF: {exc}")
+				return
+
 			st.session_state["doc_id"] = doc_id
 			st.session_state["vector_store"] = vector_store
 			st.session_state["num_pages"] = len(pages)
@@ -62,7 +74,7 @@ def main() -> None:
 		else:
 			st.info("This PDF is already indexed.")
 
-	question = st.text_input("Ask a question about the PDF")
+	question = st.text_input("To get better results, ask a precise question related to the document. For example, mention a topic, section, keyword or concept from the PDF.")
 	ask = st.button("Get answer")
 
 	if ask and question:

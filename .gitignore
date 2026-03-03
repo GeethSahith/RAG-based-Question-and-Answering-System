@@ -1,3 +1,14 @@
+# Virtual environments
 *env
+
+# Python bytecode
 __pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Data and uploads
 data/
+
+# Environment variables (API keys)
+.env

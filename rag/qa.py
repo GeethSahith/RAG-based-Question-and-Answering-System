@@ -1,12 +1,9 @@
 from typing import Dict, List
 import os
 
-import numpy as np
 from dotenv import load_dotenv
 from bytez import Bytez
-from sentence_transformers import SentenceTransformer
 
-## Here I loaded the model, built the prompt and used Bytez GPT-4o-mini (free) to get the most relavent chunks and given the response   
 SYSTEM_PROMPT = (
 	"You are a question-answering assistant. "
     "Answer the question using ONLY the information provided in the context. "
@@ -15,14 +12,6 @@ SYSTEM_PROMPT = (
     "\"The document does not contain the information you are asking for.\""
 )
 
-_EMBEDDING_MODEL = None
-
-def _get_embedding_model():
-	global _EMBEDDING_MODEL
-	if _EMBEDDING_MODEL is None:
-		_EMBEDDING_MODEL = SentenceTransformer('all-MiniLM-L6-v2')
-	return _EMBEDDING_MODEL
-
 def _get_bytez_model():
 	load_dotenv()
 	api_key = os.getenv("BYTEZ_API_KEY", "").strip()
@@ -30,11 +19,6 @@ def _get_bytez_model():
 		raise ValueError("Missing BYTEZ_API_KEY in .env")
 	sdk = Bytez(api_key)
 	return sdk.model("openai/gpt-4o-mini")
-
-def _embed_query(text: str) -> List[float]:
-	model = _get_embedding_model()
-	embedding = model.encode(text, show_progress_bar=False)
-	return embedding.tolist()
 
 def _build_prompt(question: str, contexts: List[Dict[str, str]]) -> str:
 	parts = ["Context:"]
@@ -46,26 +30,53 @@ def _build_prompt(question: str, contexts: List[Dict[str, str]]) -> str:
 	return "\n".join(parts)
 
 def answer_question(question: str, vector_store: Dict, top_k: int) -> Dict[str, object]:
+	"""
+	Searched Pinecone Serverless with text - Pinecone generates embedding automatically
+	Uses search_records() method for integrated embeddings
+	"""
+	import sys
 	index = vector_store["index"]
-	chunks = vector_store["chunks"]
-	q_emb = np.array([_embed_query(question)], dtype="float32")
-	distances, indices = index.search(q_emb, top_k)
+	doc_id = vector_store.get("doc_id", "default")
+	
+	# Searched with text integrated embeddings
+	results = index.search(
+		namespace=doc_id,
+		query={
+			"inputs": {"text": question},
+			"top_k": top_k
+		},
+		fields=["chunk_text", "page_num", "doc_id"]
+	)
+	
 	sources = []
 	contexts = []
-	for rank, idx in enumerate(indices[0]):
-		if idx == -1:
-			continue
-		chunk = chunks[idx]
-		score = float(distances[0][rank])
+	
+	# DEBUG: Print search results
+	print(f"DEBUG: Question: {question}", file=sys.stderr)
+	print(f"DEBUG: Doc ID: {doc_id}", file=sys.stderr)
+	print(f"DEBUG: Full search results: {results}", file=sys.stderr)
+	
+	# Parsed search results
+	hits = results.get("result", {}).get("hits", [])
+	print(f"DEBUG: Number of hits: {len(hits)}", file=sys.stderr)
+	for hit in hits:
+		fields = hit.get("fields", {})
+		score = hit.get("_score", 0)
+		
+		# Got text from chunk_text field
+		text = fields.get("chunk_text", "")
+		page_num = fields.get("page_num", "0")
+		
 		sources.append({
-			"page_num": chunk["page_num"],
-			"text": chunk["text"],
-			"score": score,
+			"page_num": page_num,
+			"text": text,
+			"score": float(score),
 		})
 		contexts.append({
-			"page_num": chunk["page_num"],
-			"text": chunk["text"],
+			"page_num": page_num,
+			"text": text,
 		})
+	
 	prompt = _build_prompt(question, contexts)
 	model = _get_bytez_model()
 	full_prompt = f"{SYSTEM_PROMPT}\n\n{prompt}"

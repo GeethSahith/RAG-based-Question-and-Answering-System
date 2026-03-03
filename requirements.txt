@@ -1,7 +1,6 @@
 streamlit
 pypdf
-faiss-cpu
 numpy
 python-dotenv
-sentence-transformers
 bytez
+pinecone

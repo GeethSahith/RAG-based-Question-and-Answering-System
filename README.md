@@ -3,7 +3,7 @@
 Upload a PDF, ask questions, and get answers as in the document.
 
 # Working flow
-PDF -> text -> chunks -> embeddings -> FAISS -> retrieve -> LLM -> answered with sources
+PDF -> Extract Text -> Chunk Text -> Pinecone Auto Embed by multilingual e5 large(Pinecone) -> Store in Pinecone Serverless -> Search & Retrieve Top K Chunks -> Bytez API (GPT4o-mini) -> Answer with Sources
 
 # Setup
 1. Create a virtual environment in this folder
@@ -12,13 +12,9 @@ PDF -> text -> chunks -> embeddings -> FAISS -> retrieve -> LLM -> answered with
     ./venv/Scripts/activate
 2. Install dependencies from requirements.txt
     pip install -r requirements.txt
-3. Create a .env file with BYTEZ_API_KEY(OpenAI) in root folder.
+3. Create a .env file with the following API keys in root folder:
+    Refer to the .env.example
 
 # Run
 Use Streamlit to run app.py
     streamlit run app.py
-
-# Folders
-data/uploads holds uploaded PDFs
-data/vector_store holds FAISS indexes
-rag contains the core logic of loading, chunking and retreiving

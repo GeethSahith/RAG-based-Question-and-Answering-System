@@ -1,53 +1,46 @@
 from __future__ import annotations
-from pathlib import Path
 from typing import Dict, List
-import json
 import os
-import faiss
-import numpy as np
-from sentence_transformers import SentenceTransformer
+from dotenv import load_dotenv
+from pinecone import Pinecone
 
-# Generated the embeddings using local model and stored in the FAISS Base
-_EMBEDDING_MODEL = None
+def _get_pinecone_index():
+	load_dotenv()
+	api_key = os.getenv("PINECONE_API_KEY", "").strip()
+	host = os.getenv("PINECONE_HOST", "").strip()
+	index_name = os.getenv("PINECONE_INDEX", "rag-based-qa")
+	if not api_key or not host or not index_name:
+		raise ValueError("Missing PINECONE_API_KEY, PINECONE_HOST, or PINECONE_INDEX in .env")
+	host = host.replace("https://", "").replace("http://", "")
+	pc = Pinecone(api_key=api_key)
+	return pc.Index(index_name, host=host)
 
-def _get_embedding_model():
-	global _EMBEDDING_MODEL
-	if _EMBEDDING_MODEL is None:
-		_EMBEDDING_MODEL = SentenceTransformer('all-MiniLM-L6-v2')
-	return _EMBEDDING_MODEL
+def create_or_load_vector_store(doc_id: str, chunks: List[Dict[str, str]], persist_dir: str = None):
+	"""
+	Upserted chunks to Pinecone Serverless with integrated embeddings.
+	Pinecone automatically generates embeddings using multilingual-e5-large
+	"""
+	import sys
+	index = _get_pinecone_index()
+	
+	# Prepared records for upsert_records() - metadata fields at same level as text
+	# NOT nested - each field becomes a metadata field
+	records = []
+	for i, chunk in enumerate(chunks):
+		chunk_text = (chunk.get("text") or "").strip()
+		if not chunk_text:
+			continue
+		vector_id = f"{doc_id}_chunk_{i}"
+		records.append({
+			"id": vector_id,
+			"text": chunk_text,
+			"chunk_text": chunk_text,  # Store text again for retrieval
+			"page_num": str(chunk["page_num"]),
+			"doc_id": doc_id
+		})
 
-def _embed_texts(texts: List[str]) -> List[List[float]]:
-	model = _get_embedding_model()
-	embeddings = model.encode(texts, show_progress_bar=False)
-	return embeddings.tolist()
-
-
-def _save_store(store_dir: Path, index, chunks: List[Dict[str, str]]) -> None:
-	store_dir.mkdir(parents=True, exist_ok=True)
-	faiss.write_index(index, str(store_dir / "index.faiss"))
-	with open(store_dir / "chunks.json", "w", encoding="utf-8") as f:
-		json.dump(chunks, f, ensure_ascii=True, indent=2)
-
-
-def _load_store(store_dir: Path):
-	index = faiss.read_index(str(store_dir / "index.faiss"))
-	with open(store_dir / "chunks.json", "r", encoding="utf-8") as f:
-		chunks = json.load(f)
-	return index, chunks
-
-# Created and loaded Faiss store for a document
-def create_or_load_vector_store(doc_id: str, chunks: List[Dict[str, str]], persist_dir: str):
-	base = Path(persist_dir)
-	store_dir = base / doc_id
-	if (store_dir / "index.faiss").exists() and (store_dir / "chunks.json").exists():
-		index, stored_chunks = _load_store(store_dir)
-		return {"index": index, "chunks": stored_chunks}
-	texts = [c["text"] for c in chunks]
-	embeddings = _embed_texts(texts)
-	emb_array = np.array(embeddings, dtype="float32")
-	dim = emb_array.shape[1]
-	index = faiss.IndexFlatL2(dim)
-	index.add(emb_array)
-	_save_store(store_dir, index, chunks)
-	return {"index": index, "chunks": chunks}
-
+	if not records:
+		raise ValueError("The document appears to be scanned or image based. Please upload a version that contains selectable text.")
+	
+	upsert_result = index.upsert_records(records=records, namespace=doc_id)
+	return {"index": index, "chunks": chunks, "doc_id": doc_id}
