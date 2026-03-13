@@ -16,5 +16,5 @@ PDF -> Extract Text -> Chunk Text -> Pinecone Auto Embed by multilingual e5 larg
     Refer to the .env.example
 
 # Run
-Use Streamlit to run app.py
+Use Streamlit to run app.py<br>
     streamlit run app.py
